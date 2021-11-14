@@ -1,0 +1,123 @@
+#!perl
+
+use 5.010001;
+use strict;
+use warnings;
+use Log::ger;
+
+use Getopt::Long;
+
+# AUTHORITY
+# DATE
+# DIST
+# VERSION
+
+my @orig_argv;
+my %opts = (
+    sources => [],
+);
+
+sub parse_cmdline {
+    require CLI::Meta::cp;
+
+    @orig_argv = @ARGV;
+    log_trace "original ARGV: %s", \@ARGV;
+    Getopt::Long::Configure('auto_abbrev', 'pass_through');
+    my $res = GetOptions(
+        (map { $opts{_passed}{$_} //= []; $_ => $opts{_passed}{$_} } keys %{ $CLI::Meta::cp::META->{opts} }),
+        'version|V'        => sub {
+            no warnings 'once';
+            say "cp-and-adjust-symlinks version ", ($main::VERSION // 'dev');
+            exit 0;
+        },
+        'help'           => sub {
+            print <<USAGE;
+Usage: Use like you would use 'cp'.
+USAGE
+            exit 0;
+        },
+        'T' => \$opts{no_target_directory},
+        't=s' => \$opts{target},
+        '<>' => sub {
+            push @{$opts{sources}}, $_[0];
+        },
+    );
+    exit 99 if !$res;
+    $opts{target} = pop @{ $opts{sources} }
+        if !defined($opts{target}) && @{ $opts{sources} } > 1;
+    log_trace "Parsed options: %s", \%opts;
+    #log_trace "ARGV after we parse options: %s", \@ARGV;
+}
+
+sub run {
+    require App::CpMvUtils;
+    require IPC::System::Options;
+
+    IPC::System::Options::system(
+        {log=>1, die=>1},
+        "cp", @orig_argv,
+    );
+    App::CpMvUtils::adjust_symlinks_in_target(
+        sources => $opts{sources},
+        target => $opts{target},
+    );
+}
+
+# MAIN
+
+parse_cmdline();
+run();
+
+1;
+# ABSTRACT: Copy files and directories, and adjust (relative) symlinks
+# PODNAME:
+
+=head1 SYNOPSIS
+
+Use like you would use C<cp>.
+
+
+=head1 DESCRIPTION
+
+Consider a directory tree F<dir1> below:
+
+ % mkdir dir1
+ % cd dir1
+ % touch file1
+ % ln -s /etc/passwd symlink1
+ % ln -s ../dir2 symlink2
+ % cd ..
+
+ % mkdir sub
+ % mkdir dir2
+
+When we copy F<dir1> to F<sub/dir1>:
+
+ % cp -a dir1 sub/dir1
+
+then the relative symlink F<symlink2> in the copy is broken because C<../dir2>
+no longer points to F<dir2> but now to C<sub/dir2> which does not exist.
+
+This wrapper performs the adjustment so if you do:
+
+ % cp-and-adjust-symlinks -a dir1 sub/dir1
+
+then after C<cp> finishes successfully, the script will modify the relative
+symlinks so that F<symlink2> in the copy now points to C<../../dir2>.
+
+
+=head1 EXIT CODES
+
+0 on success.
+
+99 on command-line options error (when we parse command-line options).
+
+
+=head1 FAQ
+
+
+=head1 SEE ALSO
+
+L<mv-and-adjust-symlinks>
+
+=cut
