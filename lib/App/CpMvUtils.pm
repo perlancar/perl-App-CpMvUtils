@@ -6,6 +6,8 @@ use warnings;
 use Log::ger;
 
 use File::Basename;
+use File::chdir;
+use File::Find;
 use File::Spec;
 use Path::Naive; # XXX only supports unix style
 
@@ -13,6 +15,9 @@ use Path::Naive; # XXX only supports unix style
 # DATE
 # DIST
 # VERSION
+
+# TODO: do not fix relative symlink to location internal to tree, only links to
+# external location.
 
 sub _adjust_symlink {
     # both args must be symlinks, this is not checked again by this routine
@@ -57,6 +62,23 @@ sub _adjust_symlink {
     log_trace "Adjusted symlink %s (from target '%s' to target '%s')", $symlink2, $target2, $newtarget2;
 }
 
+sub _adjust_symlink_recursive {
+    my ($dir1, $dir2) = @_;
+
+    local $CWD = $dir1;
+    find(
+        sub {
+            return if $_ eq '.';
+            return unless -l $_;
+            _adjust_symlink(
+                File::Spec->catfile($dir1, $File::Find::dir, $_),
+                File::Spec->catfile($dir2, $File::Find::dir, $_),
+            );
+        },
+        ".",
+    );
+}
+
 sub adjust_symlinks_in_target {
     my %args = @_;
 
@@ -65,18 +87,25 @@ sub adjust_symlinks_in_target {
         return;
     }
 
-    # first case: one source, symlink, target is also symlink
-    if (@{ $args{sources} } == 1 && -l $args{sources}[0]) {
-        if (-d $args{target}) {
-            my ($vol, $dirs, $file) = File::Spec->splitpath($args{sources}[0]);
-            _adjust_symlink($args{sources}[0], File::Spec->catfile($args{target}, $file));
-        } elsif (-l $args{target}) {
-            _adjust_symlink($args{sources}[0], $args{target});
-        } else {
-            log_warn "Source (%s) is a symlink, but target (%s) is neither a directory or symlink, skipping", $args{sources}[0], $args{target};
+    for my $source (@{ $args{sources} }) {
+        if (-l $source) {
+            if (-l $args{target}) {
+                _adjust_symlink($source, $args{target});
+            } elsif (-d _) {
+                my ($vol, $dirs, $file) = File::Spec->splitpath($source);
+                _adjust_symlink($source, File::Spec->catfile($args{target}, $file));
+            } else {
+                log_warn "Source (%s) is a symlink, but target (%s) is neither a ".
+                    "directory or symlink, skipping", $source, $args{target};
+            }
+        } elsif (-d $source) {
+            if (@{ $args{sources} } > 1 || $args{target_is_container}) {
+                my ($vol, $dirs, $file) = File::Spec->splitpath($source);
+                _adjust_symlink_recursive($source, File::Spec->catfile($args{target}, $file));
+            } else {
+                _adjust_symlink_recursive($source, File::Spec->catfile($args{target}));
+            }
         }
-    } else {
-        log_warn "Skipping for now";
     }
 }
 

@@ -12,12 +12,14 @@ use Getopt::Long;
 # DIST
 # VERSION
 
+my $me = 'cp-and-adjust-symlinks';
 my @orig_argv;
 my %opts = (
     sources => [],
 );
 
 sub parse_cmdline {
+    no warnings 'once';
     require CLI::Meta::cp;
 
     @orig_argv = @ARGV;
@@ -53,6 +55,12 @@ sub run {
     require App::CpMvUtils;
     require IPC::System::Options;
 
+    # TODO: handle -T
+    die "$me: Sorry, can't handle -T for now\n"
+        if $opts{no_target_directory};
+
+    my $target_is_container = !(-l $opts{target}) && -d _;
+
     IPC::System::Options::system(
         {log=>1, die=>1},
         "cp", @orig_argv,
@@ -60,6 +68,7 @@ sub run {
     App::CpMvUtils::adjust_symlinks_in_target(
         sources => $opts{sources},
         target => $opts{target},
+        target_is_container => $target_is_container,
     );
 }
 
@@ -69,7 +78,7 @@ parse_cmdline();
 run();
 
 1;
-# ABSTRACT: Copy files and directories, and adjust (relative) symlinks
+# ABSTRACT: Copy files and directories, and then adjust (relative) symlinks
 # PODNAME:
 
 =head1 SYNOPSIS
@@ -102,7 +111,7 @@ This wrapper performs the adjustment so if you do:
 
  % cp-and-adjust-symlinks -a dir1 sub/dir1
 
-then after C<cp> finishes successfully, the script will modify the relative
+then after C<cp> finishes I<successfully>, the script will modify the relative
 symlinks so that F<symlink2> in the copy now points to C<../../dir2>.
 
 
